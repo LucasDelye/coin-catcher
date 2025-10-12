@@ -24,7 +24,9 @@ class GameScene extends Phaser.Scene {
     super('gameScene')
     this.player
     this.cursor
-    this.target
+    this.targets = []
+    this.bonusTargets = []
+    this.penaltyTargets = []
     this.playerSpeed = speedDown + 50
     this.points = 0
     this.textScore
@@ -34,6 +36,10 @@ class GameScene extends Phaser.Scene {
     this.coinMusic
     this.bgMusic
     this.emitter
+    this.targetCount = 1
+    this.targetSpawnCounter = 0
+    this.penaltySpawnCounter = 0
+    this.hitTargets = new Set() // Track hit targets by their Phaser object reference
   }
 
   // ========================================
@@ -42,8 +48,10 @@ class GameScene extends Phaser.Scene {
   
   preload() {
     this.load.image('bg', '/public/assets/cryptoBgd.png')
-    this.load.image('basket', '/public/assets/wallet.png')
-    this.load.image('apple', '/public/assets/coin.png')
+    this.load.image('wallet', '/public/assets/wallet.png')
+    this.load.image('coin', '/public/assets/coin.png')
+    this.load.image('bonusCoin', '/public/assets/bonusCoin.png')
+    this.load.image('penaltyTarget', '/public/assets/penaltyCoin.png') // Using money sprite as penalty target
     this.load.image('money', '/public/assets/money.png')
     
     this.load.audio('coinMusic', '/public/assets/coin.mp3')
@@ -55,7 +63,7 @@ class GameScene extends Phaser.Scene {
     this.initializeAudio()
     this.createBackground()
     this.createPlayer()
-    this.createTarget()
+    this.createInitialTargets()
     this.setupCollisions()
     this.createUI()
     this.createParticles()
@@ -79,12 +87,21 @@ class GameScene extends Phaser.Scene {
   }
 
   createBackground() {
-    this.add.image(0, 0, 'bg').setOrigin(0, 0)
+    const bg = this.add.image(0, 0, 'bg').setOrigin(0, 0)
+    
+    // Calculate scale to ensure full height coverage
+    const bgScaleY = sizes.height / bg.height
+    const bgScaleX = sizes.width / bg.width
+    
+    // Use the larger scale to ensure full coverage, prioritizing height
+    const bgScale = Math.max(bgScaleX, bgScaleY)
+    
+    bg.setScale(bgScale)
   }
 
   createPlayer() {
     this.player = this.physics.add
-      .image(0, sizes.height - (100 * scale), 'basket')
+      .image(0, sizes.height - (100 * scale), 'wallet')
       .setOrigin(0, 0)
       .setCollideWorldBounds(true)
       .setScale(scale)
@@ -94,27 +111,125 @@ class GameScene extends Phaser.Scene {
     this.player.body.allowGravity = false
   }
 
+  createInitialTargets() {
+    // Create initial targets
+    console.log('Creating initial targets, count:', this.targetCount)
+    for(let i = 0; i < this.targetCount; i++) {
+      this.createTarget()
+    }
+    console.log('Total targets created:', this.targets.length)
+  }
+
   createTarget() {
-    this.target = this.physics.add
-      .image(0, 0, 'apple')
+    const target = this.physics.add
+      .image(0, 0, 'coin')
       .setOrigin(0, 0)
       .setScale(scale)
       .setMaxVelocity(0, speedDown)
+    
+    target.setY(0)
+    target.setX(this.getRandomX())
+    target.targetType = 'regular'
+    this.targets.push(target)
+    
+    console.log('Created target', this.targets.length, 'at position:', target.x, target.y)
+    
+    // Set up collision detection for this target
+    this.setupTargetCollision(target)
+    
+    // Check if we should spawn a bonus target (1 in 5 chance)
+    if(this.shouldSpawnBonusTarget() && this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 5) {
+      this.createBonusTarget()
+    }
+    
+    // Check if we should spawn a penalty target (1 in 6 chance)
+    if(this.shouldSpawnPenaltyTarget() && this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 5) {
+      this.createPenaltyTarget()
+    }
+    
+    return target
+  }
+
+  createBonusTarget() {
+    const bonusTarget = this.physics.add
+      .image(0, 0, 'bonusCoin')
+      .setOrigin(0, 0)
+      .setScale(scale) // Same size as regular coins
+      .setMaxVelocity(0, speedDown)
+    
+    bonusTarget.setY(0)
+    bonusTarget.setX(this.getRandomX())
+    bonusTarget.targetType = 'bonus'
+    this.bonusTargets.push(bonusTarget)
+    
+    // Set up collision detection for this bonus target
+    this.setupBonusTargetCollision(bonusTarget)
+    
+    return bonusTarget
+  }
+
+  createPenaltyTarget() {
+    const penaltyTarget = this.physics.add
+      .image(0, 0, 'penaltyTarget')
+      .setOrigin(0, 0)
+      .setScale(scale) // Same size as regular coins
+      .setMaxVelocity(0, speedDown)
+    
+    penaltyTarget.setY(0)
+    penaltyTarget.setX(this.getRandomX())
+    penaltyTarget.targetType = 'penalty'
+    this.penaltyTargets.push(penaltyTarget)
+    
+    // Set up collision detection for this penalty target
+    this.setupPenaltyTargetCollision(penaltyTarget)
+    
+    return penaltyTarget
   }
 
   setupCollisions() {
-    this.physics.add.overlap(this.target, this.player, this.targetHit, null, this)
+    // Set up collision detection for all existing targets
+    this.targets.forEach(target => {
+      this.setupTargetCollision(target)
+    })
+    
+    this.bonusTargets.forEach(bonusTarget => {
+      this.setupBonusTargetCollision(bonusTarget)
+    })
+    
+    this.penaltyTargets.forEach(penaltyTarget => {
+      this.setupPenaltyTargetCollision(penaltyTarget)
+    })
+  }
+
+  setupTargetCollision(target) {
+    this.physics.add.overlap(target, this.player, this.targetHit, null, this)
+  }
+
+  setupBonusTargetCollision(bonusTarget) {
+    this.physics.add.overlap(bonusTarget, this.player, this.bonusTargetHit, null, this)
+  }
+
+  setupPenaltyTargetCollision(penaltyTarget) {
+    this.physics.add.overlap(penaltyTarget, this.player, this.penaltyTargetHit, null, this)
   }
 
   createUI() {
-    this.textScore = this.add.text(sizes.width - 120, 10, 'Score: 0', {
-      font: '25xp  Arial',
-      fill: "#000000"
+    // Calculate responsive font size based on screen width
+    const fontSize = Math.max(20, Math.min(35, sizes.width / 30))
+    const strokeThickness = Math.max(1, Math.min(3, sizes.width / 400))
+    
+    this.textScore = this.add.text(sizes.width - (sizes.width * 0.25), 10, 'Score: 0', {
+      font: `${fontSize}px Arial`,
+      fill: "#FFFFFF",
+      stroke: "#000000",
+      strokeThickness: strokeThickness
     })
 
     this.textTime = this.add.text(10, 10, 'Remaining Time: 00', {
-      font: '25xp Arial',
-      fill: '#000000'
+      font: `${fontSize}px Arial`,
+      fill: '#FFFFFF',
+      stroke: "#000000",
+      strokeThickness: strokeThickness
     })
   }
 
@@ -140,12 +255,53 @@ class GameScene extends Phaser.Scene {
   updateTimer() {
     this.remainingTime = this.timedEvent.getRemainingSeconds()
     this.textTime.setText(`Remaining Time: ${Math.round(this.remainingTime).toString()}`)
+    
+    // Update target count based on time remaining
+    this.updateTargetCount()
   }
 
   handleTargetSpawning() {
-    if(this.target.y > sizes.height){
-      this.spawnTarget()
-    }
+    // Check regular targets that fell off screen
+    this.targets.forEach((target, index) => {
+      if(target.y > sizes.height) {
+        this.targets.splice(index, 1)
+        target.destroy()
+        
+        // Create new target if under limit
+        if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 5) {
+          this.createTarget()
+        }
+      }
+    })
+    
+    // Check bonus targets that fell off screen
+    this.bonusTargets.forEach((bonusTarget, index) => {
+      if(bonusTarget.y > sizes.height) {
+        this.bonusTargets.splice(index, 1)
+        bonusTarget.destroy()
+        
+        // Create new bonus target if under limit
+        if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 5) {
+          this.createBonusTarget()
+        }
+      }
+    })
+    
+    // Check penalty targets that fell off screen
+    this.penaltyTargets.forEach((penaltyTarget, index) => {
+      if(penaltyTarget.y > sizes.height) {
+        this.penaltyTargets.splice(index, 1)
+        penaltyTarget.destroy()
+        
+        // Create new penalty target if under limit
+        if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 5) {
+          this.createPenaltyTarget()
+        }
+      }
+    })
+    
+    // Spawn new targets based on difficulty (respecting limit)
+    this.updateTargetCount()
   }
 
   handlePlayerMovement() {
@@ -159,24 +315,112 @@ class GameScene extends Phaser.Scene {
   // GAME LOGIC HELPER METHODS
   // ========================================
 
-  spawnTarget() {
-    this.target.setY(0)
-    this.target.setX(this.getRandomX())
+  // Bonus target spawning logic moved to createTarget method
+  shouldSpawnBonusTarget() {
+    this.targetSpawnCounter++
+    if(this.targetSpawnCounter >= 5) {
+      this.targetSpawnCounter = 0
+      return true
+    }
+    return false
+  }
+
+  // Penalty target spawning logic
+  shouldSpawnPenaltyTarget() {
+    this.penaltySpawnCounter++
+    if(this.penaltySpawnCounter >= 6) {
+      this.penaltySpawnCounter = 0
+      return true
+    }
+    return false
   }
 
   getRandomX(){
     return Math.random() * (sizes.width - (100 * scale))
   }
 
-  targetHit(){
-    this.coinMusic.play()
-    this.emitter.start()
-    this.spawnTarget()
-    this.updateScore()
+  updateTargetCount() {
+    // Increase target count as time progresses
+    const timeElapsed = 30 - this.remainingTime
+    const newTargetCount = Math.min(Math.floor(timeElapsed / 5) + 1, 5) // Max 5 targets total
+    
+    if(newTargetCount > this.targetCount) {
+      // Add new targets only if under the limit
+      const currentTotal = this.targets.length + this.bonusTargets.length + this.penaltyTargets.length
+      const targetsToAdd = Math.min(newTargetCount - this.targetCount, 5 - currentTotal)
+      
+      for(let i = 0; i < targetsToAdd; i++) {
+        this.createTarget()
+      }
+      this.targetCount = newTargetCount
+    }
   }
 
-  updateScore() {
-    this.points++
+  targetHit(target, player){
+    console.log('Target hit! Target object:', target, 'Player:', player)
+    
+    this.coinMusic.play()
+    this.emitter.start()
+    this.updateScore(1)
+    console.log('Scoring 1 point, destroying target immediately')
+    
+    // Immediately destroy and remove target
+    const targetIndex = this.targets.indexOf(target)
+    if(targetIndex !== -1) {
+      this.targets.splice(targetIndex, 1)
+    }
+    target.destroy()
+    
+    // Create a new target to replace it (if under limit)
+    if(this.targets.length + this.bonusTargets.length < 5) {
+      this.createTarget()
+    }
+  }
+
+  bonusTargetHit(bonusTarget, player){
+    console.log('Bonus target hit! Target object:', bonusTarget, 'Player:', player)
+    
+    this.coinMusic.play()
+    this.emitter.start()
+    this.updateScore(3)
+    console.log('Scoring 3 points, destroying bonus target immediately')
+    
+    // Immediately destroy and remove bonus target
+    const bonusIndex = this.bonusTargets.indexOf(bonusTarget)
+    if(bonusIndex !== -1) {
+      this.bonusTargets.splice(bonusIndex, 1)
+    }
+    bonusTarget.destroy()
+    
+    // Create a new bonus target to replace it (if under limit)
+    if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 5) {
+      this.createBonusTarget()
+    }
+  }
+
+  penaltyTargetHit(penaltyTarget, player){
+    console.log('Penalty target hit! Target object:', penaltyTarget, 'Player:', player)
+    
+    this.coinMusic.play()
+    this.emitter.start()
+    this.updateScore(-1) // Subtract 1 point
+    console.log('Penalty! Subtracting 1 point, destroying penalty target immediately')
+    
+    // Immediately destroy and remove penalty target
+    const penaltyIndex = this.penaltyTargets.indexOf(penaltyTarget)
+    if(penaltyIndex !== -1) {
+      this.penaltyTargets.splice(penaltyIndex, 1)
+    }
+    penaltyTarget.destroy()
+    
+    // Create a new penalty target to replace it (if under limit)
+    if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 5) {
+      this.createPenaltyTarget()
+    }
+  }
+
+  updateScore(points = 1) {
+    this.points += points
     this.textScore.setText(`Score: ${this.points}`)
   }
 
@@ -187,7 +431,7 @@ class GameScene extends Phaser.Scene {
 
   displayGameResults() {
     gameEndScoreSpan.textContent = this.points
-    gameWinLoseSpan.textContent = this.points >= 10 ? 'You did the thing!' : 'You suck b*tch!'
+    gameWinLoseSpan.textContent = `Final Score: ${this.points}`
     gameEndDiv.style.display = 'flex'
   }
 

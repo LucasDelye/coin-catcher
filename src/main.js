@@ -2,11 +2,16 @@ import './style.css'
 import Phaser from 'phaser'
 
 const sizes = {
-  width: 500,
-  height: 500
+  width: window.innerWidth,
+  height: window.innerHeight
 }
 
-const speedDown = 200
+// Calculate scaling factors based on original 1080x1920 resolution
+const scaleX = sizes.width / 1080
+const scaleY = sizes.height / 1920
+const scale = Math.min(scaleX, scaleY) // Use the smaller scale to maintain aspect ratio
+
+const speedDown = 500
 
 const gameStartDiv = document.querySelector('#gameStartDiv')
 const gameStartBtn = document.querySelector('#gameStartBtn')
@@ -31,10 +36,14 @@ class GameScene extends Phaser.Scene {
     this.emitter
   }
 
+  // ========================================
+  // MAIN PHASER LIFECYCLE METHODS
+  // ========================================
+  
   preload() {
-    this.load.image('bg', '/public/assets/bg.png')
-    this.load.image('basket', '/public/assets/basket.png')
-    this.load.image('apple', '/public/assets/apple.png')
+    this.load.image('bg', '/public/assets/cryptoBgd.png')
+    this.load.image('basket', '/public/assets/wallet.png')
+    this.load.image('apple', '/public/assets/coin.png')
     this.load.image('money', '/public/assets/money.png')
     
     this.load.audio('coinMusic', '/public/assets/coin.mp3')
@@ -43,30 +52,61 @@ class GameScene extends Phaser.Scene {
 
   create() {
     this.scene.pause('gameScene')
+    this.initializeAudio()
+    this.createBackground()
+    this.createPlayer()
+    this.createTarget()
+    this.setupCollisions()
+    this.createUI()
+    this.createParticles()
+    this.startGameTimer()
+  }
 
+  update(){
+    this.updateTimer()
+    this.handleTargetSpawning()
+    this.handlePlayerMovement()
+  }
+
+  // ========================================
+  // GAME SETUP HELPER METHODS
+  // ========================================
+
+  initializeAudio() {
     this.coinMusic = this.sound.add('coinMusic')
     this.bgMusic = this.sound.add('bgMusic')
     this.bgMusic.play()
+  }
 
+  createBackground() {
     this.add.image(0, 0, 'bg').setOrigin(0, 0)
+  }
+
+  createPlayer() {
     this.player = this.physics.add
-      .image(0, sizes.height - 100, 'basket')
+      .image(0, sizes.height - (100 * scale), 'basket')
       .setOrigin(0, 0)
       .setCollideWorldBounds(true)
+      .setScale(scale)
       
-    this.player.setSize(this.player.width - this.player.width/4, this.player.height/6).setOffset(this.player.width/10, this.player.height - this.player.height/10)
+    this.player.setSize(this.player.width - this.player.width/4, this.player.height/3)
+      .setOffset(this.player.width/10, this.player.height - this.player.height/3)
     this.player.body.allowGravity = false
+  }
 
+  createTarget() {
     this.target = this.physics.add
       .image(0, 0, 'apple')
       .setOrigin(0, 0)
+      .setScale(scale)
       .setMaxVelocity(0, speedDown)
+  }
 
-
+  setupCollisions() {
     this.physics.add.overlap(this.target, this.player, this.targetHit, null, this)
+  }
 
-    this.cursor = this.input.keyboard.createCursorKeys()
-
+  createUI() {
     this.textScore = this.add.text(sizes.width - 120, 10, 'Score: 0', {
       font: '25xp  Arial',
       fill: "#000000"
@@ -76,9 +116,9 @@ class GameScene extends Phaser.Scene {
       font: '25xp Arial',
       fill: '#000000'
     })
+  }
 
-    this.timedEvent = this.time.delayedCall(30000, this.gameOver, [], this)
-
+  createParticles() {
     this.emitter = this.add.particles(0, 0, 'money', {
       speed: 100,
       gravityY: speedDown - 200,
@@ -89,46 +129,65 @@ class GameScene extends Phaser.Scene {
     this.emitter.startFollow(this.player, this.player.width / 2, this.player.height / 2, true)
   }
 
-  update(){
+  startGameTimer() {
+    this.timedEvent = this.time.delayedCall(30000, this.gameOver, [], this)
+  }
 
+  // ========================================
+  // GAME UPDATE HELPER METHODS
+  // ========================================
+
+  updateTimer() {
     this.remainingTime = this.timedEvent.getRemainingSeconds()
     this.textTime.setText(`Remaining Time: ${Math.round(this.remainingTime).toString()}`)
+  }
 
+  handleTargetSpawning() {
     if(this.target.y > sizes.height){
-      this.target.setY(0)
-    }
-
-    if(this.cursor.left.isDown){
-      this.player.setVelocityX(-this.playerSpeed)
-    } else if(this.cursor.right.isDown){
-      this.player.setVelocityX(this.playerSpeed)
-    } else {
-      this.player.setVelocityX(0)
+      this.spawnTarget()
     }
   }
 
+  handlePlayerMovement() {
+    if(this.input.activePointer.isDown){
+      const mouseX = this.input.activePointer.x
+      this.player.setX(mouseX - this.player.width / 2)
+    }
+  }
+
+  // ========================================
+  // GAME LOGIC HELPER METHODS
+  // ========================================
+
+  spawnTarget() {
+    this.target.setY(0)
+    this.target.setX(this.getRandomX())
+  }
+
   getRandomX(){
-    return Math.random() * (sizes.width - 100)
+    return Math.random() * (sizes.width - (100 * scale))
   }
 
   targetHit(){
     this.coinMusic.play()
     this.emitter.start()
-    this.target.setY(0)
-    this.target.setX(this.getRandomX())
+    this.spawnTarget()
+    this.updateScore()
+  }
+
+  updateScore() {
     this.points++
     this.textScore.setText(`Score: ${this.points}`)
   }
 
   gameOver() {
     this.sys.game.destroy(true)
-    gameEndScoreSpan.textContent = this.points
-    if(this.points >= 10){
-      gameWinLoseSpan.textContent = 'You did the thing!'
-    } else {
-      gameWinLoseSpan.textContent = 'You suck b*tch!'
-    }
+    this.displayGameResults()
+  }
 
+  displayGameResults() {
+    gameEndScoreSpan.textContent = this.points
+    gameWinLoseSpan.textContent = this.points >= 10 ? 'You did the thing!' : 'You suck b*tch!'
     gameEndDiv.style.display = 'flex'
   }
 

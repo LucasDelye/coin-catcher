@@ -35,7 +35,8 @@ class GameScene extends Phaser.Scene {
     this.remainingTime
     this.coinMusic
     this.bgMusic
-    this.emitter
+    this.successEmitter
+    this.penaltyEmitter
     this.targetCount = 1
     this.targetSpawnCounter = 0
     this.penaltySpawnCounter = 0
@@ -53,9 +54,12 @@ class GameScene extends Phaser.Scene {
     this.load.image('bonusCoin', '/public/assets/bonusCoin.png')
     this.load.image('penaltyTarget', '/public/assets/penaltyCoin.png') // Using money sprite as penalty target
     this.load.image('money', '/public/assets/money.png')
+    this.load.image('success', '/public/assets/success.png')
+    this.load.image('penalty', '/public/assets/penalty.png')
     
     this.load.audio('coinMusic', '/public/assets/coin.mp3')
     this.load.audio('bgMusic', '/public/assets/bgMusic.mp3')
+    this.load.audio('penaltySound', '/public/assets/incorrect.mp3')
   }
 
   create() {
@@ -83,6 +87,7 @@ class GameScene extends Phaser.Scene {
   initializeAudio() {
     this.coinMusic = this.sound.add('coinMusic')
     this.bgMusic = this.sound.add('bgMusic')
+    this.penaltySound = this.sound.add('penaltySound')
     this.bgMusic.play()
   }
 
@@ -101,7 +106,7 @@ class GameScene extends Phaser.Scene {
 
   createPlayer() {
     this.player = this.physics.add
-      .image(0, sizes.height - (100 * scale), 'wallet')
+      .image(0, sizes.height * (2/3) - (100 * scale), 'wallet')
       .setOrigin(0, 0)
       .setCollideWorldBounds(true)
       .setScale(scale)
@@ -234,14 +239,25 @@ class GameScene extends Phaser.Scene {
   }
 
   createParticles() {
-    this.emitter = this.add.particles(0, 0, 'money', {
+    // Success particles for regular and bonus coins
+    this.successEmitter = this.add.particles(0, 0, 'success', {
       speed: 100,
       gravityY: speedDown - 200,
       scale: 0.04,
       duration: 100,
       emitting: false
     })
-    this.emitter.startFollow(this.player, this.player.width / 2, this.player.height / 2, true)
+    this.successEmitter.startFollow(this.player, this.player.width / 2, this.player.height / 2, true)
+    
+    // Penalty particles for penalty coins
+    this.penaltyEmitter = this.add.particles(0, 0, 'penalty', {
+      speed: 100,
+      gravityY: speedDown - 200,
+      scale: 0.04,
+      duration: 100,
+      emitting: false
+    })
+    this.penaltyEmitter.startFollow(this.player, this.player.width / 2, this.player.height / 2, true)
   }
 
   startGameTimer() {
@@ -360,7 +376,7 @@ class GameScene extends Phaser.Scene {
     console.log('Target hit! Target object:', target, 'Player:', player)
     
     this.coinMusic.play()
-    this.emitter.start()
+    this.successEmitter.start()
     this.updateScore(1)
     console.log('Scoring 1 point, destroying target immediately')
     
@@ -381,7 +397,7 @@ class GameScene extends Phaser.Scene {
     console.log('Bonus target hit! Target object:', bonusTarget, 'Player:', player)
     
     this.coinMusic.play()
-    this.emitter.start()
+    this.successEmitter.start()
     this.updateScore(3)
     console.log('Scoring 3 points, destroying bonus target immediately')
     
@@ -401,8 +417,8 @@ class GameScene extends Phaser.Scene {
   penaltyTargetHit(penaltyTarget, player){
     console.log('Penalty target hit! Target object:', penaltyTarget, 'Player:', player)
     
-    this.coinMusic.play()
-    this.emitter.start()
+    this.penaltySound.play()
+    this.penaltyEmitter.start()
     this.updateScore(-1) // Subtract 1 point
     console.log('Penalty! Subtracting 1 point, destroying penalty target immediately')
     

@@ -29,10 +29,9 @@ class GameScene extends Phaser.Scene {
     this.penaltyTargets = []
     this.playerSpeed = speedDown + 50
     this.points = 0
+    this.lives = 3
     this.textScore
-    this.textTime
-    this.timedEvent
-    this.remainingTime
+    this.textLives
     this.coinMusic
     this.bgMusic
     this.successEmitter
@@ -71,11 +70,9 @@ class GameScene extends Phaser.Scene {
     this.setupCollisions()
     this.createUI()
     this.createParticles()
-    this.startGameTimer()
   }
 
   update(){
-    this.updateTimer()
     this.handleTargetSpawning()
     this.handlePlayerMovement()
   }
@@ -106,8 +103,8 @@ class GameScene extends Phaser.Scene {
 
   createPlayer() {
     this.player = this.physics.add
-      .image(0, sizes.height * (2/3) - (100 * scale), 'wallet')
-      .setOrigin(0, 0)
+      .image(sizes.width / 2, sizes.height * (2/3) - (100 * scale), 'wallet')
+      .setOrigin(0.5, 0)
       .setCollideWorldBounds(true)
       .setScale(scale)
       
@@ -143,12 +140,12 @@ class GameScene extends Phaser.Scene {
     this.setupTargetCollision(target)
     
     // Check if we should spawn a bonus target (1 in 5 chance)
-    if(this.shouldSpawnBonusTarget() && this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 5) {
+    if(this.shouldSpawnBonusTarget() && this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 10) {
       this.createBonusTarget()
     }
     
     // Check if we should spawn a penalty target (1 in 6 chance)
-    if(this.shouldSpawnPenaltyTarget() && this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 5) {
+    if(this.shouldSpawnPenaltyTarget() && this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 10 && this.penaltyTargets.length < 3) {
       this.createPenaltyTarget()
     }
     
@@ -230,7 +227,7 @@ class GameScene extends Phaser.Scene {
       strokeThickness: strokeThickness
     })
 
-    this.textTime = this.add.text(10, 10, 'Remaining Time: 00', {
+    this.textLives = this.add.text(10, 10, 'Lives: 3', {
       font: `${fontSize}px Arial`,
       fill: '#FFFFFF',
       stroke: "#000000",
@@ -260,21 +257,11 @@ class GameScene extends Phaser.Scene {
     this.penaltyEmitter.startFollow(this.player, this.player.width / 2, this.player.height / 2, true)
   }
 
-  startGameTimer() {
-    this.timedEvent = this.time.delayedCall(30000, this.gameOver, [], this)
-  }
 
   // ========================================
   // GAME UPDATE HELPER METHODS
   // ========================================
 
-  updateTimer() {
-    this.remainingTime = this.timedEvent.getRemainingSeconds()
-    this.textTime.setText(`Remaining Time: ${Math.round(this.remainingTime).toString()}`)
-    
-    // Update target count based on time remaining
-    this.updateTargetCount()
-  }
 
   handleTargetSpawning() {
     // Check regular targets that fell off screen
@@ -284,7 +271,7 @@ class GameScene extends Phaser.Scene {
         target.destroy()
         
         // Create new target if under limit
-        if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 5) {
+        if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 10) {
           this.createTarget()
         }
       }
@@ -297,7 +284,7 @@ class GameScene extends Phaser.Scene {
         bonusTarget.destroy()
         
         // Create new bonus target if under limit
-        if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 5) {
+        if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 10) {
           this.createBonusTarget()
         }
       }
@@ -310,7 +297,7 @@ class GameScene extends Phaser.Scene {
         penaltyTarget.destroy()
         
         // Create new penalty target if under limit
-        if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 5) {
+        if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 10 && this.penaltyTargets.length < 3) {
           this.createPenaltyTarget()
         }
       }
@@ -323,7 +310,7 @@ class GameScene extends Phaser.Scene {
   handlePlayerMovement() {
     if(this.input.activePointer.isDown){
       const mouseX = this.input.activePointer.x
-      this.player.setX(mouseX - this.player.width / 2)
+      this.player.setX(mouseX)
     }
   }
 
@@ -356,14 +343,13 @@ class GameScene extends Phaser.Scene {
   }
 
   updateTargetCount() {
-    // Increase target count as time progresses
-    const timeElapsed = 30 - this.remainingTime
-    const newTargetCount = Math.min(Math.floor(timeElapsed / 5) + 1, 5) // Max 5 targets total
+    // Gradually increase target count based on score
+    const newTargetCount = Math.min(Math.floor(this.points / 10) + 1, 10) // Max 10 targets total
     
     if(newTargetCount > this.targetCount) {
       // Add new targets only if under the limit
       const currentTotal = this.targets.length + this.bonusTargets.length + this.penaltyTargets.length
-      const targetsToAdd = Math.min(newTargetCount - this.targetCount, 5 - currentTotal)
+      const targetsToAdd = Math.min(newTargetCount - this.targetCount, 10 - currentTotal)
       
       for(let i = 0; i < targetsToAdd; i++) {
         this.createTarget()
@@ -388,7 +374,7 @@ class GameScene extends Phaser.Scene {
     target.destroy()
     
     // Create a new target to replace it (if under limit)
-    if(this.targets.length + this.bonusTargets.length < 5) {
+    if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 10) {
       this.createTarget()
     }
   }
@@ -409,7 +395,7 @@ class GameScene extends Phaser.Scene {
     bonusTarget.destroy()
     
     // Create a new bonus target to replace it (if under limit)
-    if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 5) {
+    if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 10) {
       this.createBonusTarget()
     }
   }
@@ -419,8 +405,8 @@ class GameScene extends Phaser.Scene {
     
     this.penaltySound.play()
     this.penaltyEmitter.start()
-    this.updateScore(-1) // Subtract 1 point
-    console.log('Penalty! Subtracting 1 point, destroying penalty target immediately')
+    this.loseLife() // Lose a life instead of subtracting points
+    console.log('Penalty! Lost a life, destroying penalty target immediately')
     
     // Immediately destroy and remove penalty target
     const penaltyIndex = this.penaltyTargets.indexOf(penaltyTarget)
@@ -430,7 +416,7 @@ class GameScene extends Phaser.Scene {
     penaltyTarget.destroy()
     
     // Create a new penalty target to replace it (if under limit)
-    if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 5) {
+    if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 10 && this.penaltyTargets.length < 3) {
       this.createPenaltyTarget()
     }
   }
@@ -438,6 +424,16 @@ class GameScene extends Phaser.Scene {
   updateScore(points = 1) {
     this.points += points
     this.textScore.setText(`Score: ${this.points}`)
+    this.updateTargetCount() // Update target count based on score
+  }
+
+  loseLife() {
+    this.lives--
+    this.textLives.setText(`Lives: ${this.lives}`)
+    
+    if (this.lives <= 0) {
+      this.gameOver()
+    }
   }
 
   gameOver() {

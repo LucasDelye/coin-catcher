@@ -11,35 +11,34 @@ const scaleX = sizes.width / 1080
 const scaleY = sizes.height / 1920
 const scale = Math.min(scaleX, scaleY) // Use the smaller scale to maintain aspect ratio
 
-const speedDown = 500
+// Game parameters
+const GRAVITY = 800
+const JUMP_FORCE = -250
+const OBSTACLE_SPEED = 200
+const OBSTACLE_GAP_MIN = 150
+const OBSTACLE_GAP_MAX = 250
+const OBSTACLE_SPAWN_DISTANCE = 300
 
 const gameStartDiv = document.querySelector('#gameStartDiv')
 const gameStartBtn = document.querySelector('#gameStartBtn')
 const gameEndDiv = document.querySelector('#gameEndDiv')
 const gameEndScoreSpan = document.querySelector('#gameEndScoreSpan')
 const gameWinLoseSpan = document.querySelector('#gameWinLoseSpan')
+const retryBtn = document.querySelector('#retryBtn')
 
 class GameScene extends Phaser.Scene {
   constructor() {
     super('gameScene')
     this.player
-    this.cursor
-    this.targets = []
-    this.bonusTargets = []
-    this.penaltyTargets = []
-    this.playerSpeed = speedDown + 50
-    this.points = 0
-    this.lives = 3
+    this.obstacles = []
+    this.score = 0
     this.textScore
-    this.textLives
-    this.coinMusic
-    this.bgMusic
-    this.successEmitter
-    this.penaltyEmitter
-    this.targetCount = 1
-    this.targetSpawnCounter = 0
-    this.penaltySpawnCounter = 0
-    this.hitTargets = new Set() // Track hit targets by their Phaser object reference
+    this.gameStarted = false
+    this.gameOver = false
+    this.lastObstacleX = sizes.width + OBSTACLE_SPAWN_DISTANCE
+    this.passedObstacles = new Set() // Track obstacles that have been passed for scoring
+    this.tapTimes = [] // Track tap timestamps for combo detection
+    this.comboWindow = 300 // Time window for combo taps (milliseconds)
   }
 
   // ========================================
@@ -47,18 +46,19 @@ class GameScene extends Phaser.Scene {
   // ========================================
   
   preload() {
+    // Load background
     this.load.image('bg', '/public/assets/cryptoBgd.png')
-    this.load.image('wallet', '/public/assets/wallet.png')
-    this.load.image('coin', '/public/assets/coin.png')
-    this.load.image('bonusCoin', '/public/assets/bonusCoin.png')
-    this.load.image('penaltyTarget', '/public/assets/penaltyCoin.png') // Using money sprite as penalty target
-    this.load.image('money', '/public/assets/money.png')
-    this.load.image('success', '/public/assets/success.png')
-    this.load.image('penalty', '/public/assets/penalty.png')
     
-    this.load.audio('coinMusic', '/public/assets/coin.mp3')
+    // Load player sprite (rocket)
+    this.load.image('player', '/public/assets/rocket.png')
+    
+    // Load obstacle sprite
+    this.load.image('obstacle', '/public/assets/obstacle.png')
+    
+    // Load audio
+    this.load.audio('flapSound', '/public/assets/coin.mp3')
     this.load.audio('bgMusic', '/public/assets/bgMusic.mp3')
-    this.load.audio('penaltySound', '/public/assets/incorrect.mp3')
+    this.load.audio('collisionSound', '/public/assets/incorrect.mp3')
   }
 
   create() {
@@ -66,15 +66,17 @@ class GameScene extends Phaser.Scene {
     this.initializeAudio()
     this.createBackground()
     this.createPlayer()
-    this.createInitialTargets()
-    this.setupCollisions()
     this.createUI()
-    this.createParticles()
+    this.setupInput()
   }
 
-  update(){
-    this.handleTargetSpawning()
-    this.handlePlayerMovement()
+  update() {
+    if (!this.gameStarted || this.gameOver) return
+    
+    this.spawnObstacles()
+    this.updateObstacles()
+    this.checkScoring()
+    this.checkCollisions()
   }
 
   // ========================================
@@ -82,10 +84,10 @@ class GameScene extends Phaser.Scene {
   // ========================================
 
   initializeAudio() {
-    this.coinMusic = this.sound.add('coinMusic')
+    this.flapSound = this.sound.add('flapSound')
     this.bgMusic = this.sound.add('bgMusic')
-    this.penaltySound = this.sound.add('penaltySound')
-    this.bgMusic.play()
+    this.collisionSound = this.sound.add('collisionSound')
+    this.bgMusic.play({ loop: true })
   }
 
   createBackground() {
@@ -103,116 +105,14 @@ class GameScene extends Phaser.Scene {
 
   createPlayer() {
     this.player = this.physics.add
-      .image(sizes.width / 2, sizes.height * (2/3) - (100 * scale), 'wallet')
-      .setOrigin(0.5, 0)
+      .image(sizes.width / 3, sizes.height / 2, 'player')
+      .setOrigin(0.5, 0.5)
+      .setScale(scale * 0.8)
       .setCollideWorldBounds(true)
-      .setScale(scale)
-      
-    this.player.setSize(this.player.width - this.player.width/4, this.player.height/3)
-      .setOffset(this.player.width/10, this.player.height - this.player.height/3)
-    this.player.body.allowGravity = false
-  }
-
-  createInitialTargets() {
-    // Create initial targets
-    console.log('Creating initial targets, count:', this.targetCount)
-    for(let i = 0; i < this.targetCount; i++) {
-      this.createTarget()
-    }
-    console.log('Total targets created:', this.targets.length)
-  }
-
-  createTarget() {
-    const target = this.physics.add
-      .image(0, 0, 'coin')
-      .setOrigin(0, 0)
-      .setScale(scale)
-      .setMaxVelocity(0, speedDown)
     
-    target.setY(0)
-    target.setX(this.getRandomX())
-    target.targetType = 'regular'
-    this.targets.push(target)
-    
-    console.log('Created target', this.targets.length, 'at position:', target.x, target.y)
-    
-    // Set up collision detection for this target
-    this.setupTargetCollision(target)
-    
-    // Check if we should spawn a bonus target (1 in 5 chance)
-    if(this.shouldSpawnBonusTarget() && this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 10) {
-      this.createBonusTarget()
-    }
-    
-    // Check if we should spawn a penalty target (1 in 6 chance)
-    if(this.shouldSpawnPenaltyTarget() && this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 10 && this.penaltyTargets.length < 3) {
-      this.createPenaltyTarget()
-    }
-    
-    return target
-  }
-
-  createBonusTarget() {
-    const bonusTarget = this.physics.add
-      .image(0, 0, 'bonusCoin')
-      .setOrigin(0, 0)
-      .setScale(scale) // Same size as regular coins
-      .setMaxVelocity(0, speedDown)
-    
-    bonusTarget.setY(0)
-    bonusTarget.setX(this.getRandomX())
-    bonusTarget.targetType = 'bonus'
-    this.bonusTargets.push(bonusTarget)
-    
-    // Set up collision detection for this bonus target
-    this.setupBonusTargetCollision(bonusTarget)
-    
-    return bonusTarget
-  }
-
-  createPenaltyTarget() {
-    const penaltyTarget = this.physics.add
-      .image(0, 0, 'penaltyTarget')
-      .setOrigin(0, 0)
-      .setScale(scale) // Same size as regular coins
-      .setMaxVelocity(0, speedDown)
-    
-    penaltyTarget.setY(0)
-    penaltyTarget.setX(this.getRandomX())
-    penaltyTarget.targetType = 'penalty'
-    this.penaltyTargets.push(penaltyTarget)
-    
-    // Set up collision detection for this penalty target
-    this.setupPenaltyTargetCollision(penaltyTarget)
-    
-    return penaltyTarget
-  }
-
-  setupCollisions() {
-    // Set up collision detection for all existing targets
-    this.targets.forEach(target => {
-      this.setupTargetCollision(target)
-    })
-    
-    this.bonusTargets.forEach(bonusTarget => {
-      this.setupBonusTargetCollision(bonusTarget)
-    })
-    
-    this.penaltyTargets.forEach(penaltyTarget => {
-      this.setupPenaltyTargetCollision(penaltyTarget)
-    })
-  }
-
-  setupTargetCollision(target) {
-    this.physics.add.overlap(target, this.player, this.targetHit, null, this)
-  }
-
-  setupBonusTargetCollision(bonusTarget) {
-    this.physics.add.overlap(bonusTarget, this.player, this.bonusTargetHit, null, this)
-  }
-
-  setupPenaltyTargetCollision(penaltyTarget) {
-    this.physics.add.overlap(penaltyTarget, this.player, this.penaltyTargetHit, null, this)
+    // Enable gravity for the player
+    this.player.body.setGravityY(GRAVITY)
+    this.player.body.setMaxVelocity(0, 500)
   }
 
   createUI() {
@@ -220,233 +120,192 @@ class GameScene extends Phaser.Scene {
     const fontSize = Math.max(20, Math.min(35, sizes.width / 30))
     const strokeThickness = Math.max(1, Math.min(3, sizes.width / 400))
     
-    this.textScore = this.add.text(sizes.width - (sizes.width * 0.25), 10, 'Score: 0', {
+    this.textScore = this.add.text(sizes.width / 2, 50, 'Score: 0', {
       font: `${fontSize}px Arial`,
       fill: "#FFFFFF",
       stroke: "#000000",
       strokeThickness: strokeThickness
-    })
-
-    this.textLives = this.add.text(10, 10, 'Lives: 3', {
-      font: `${fontSize}px Arial`,
-      fill: '#FFFFFF',
-      stroke: "#000000",
-      strokeThickness: strokeThickness
-    })
+    }).setOrigin(0.5, 0.5)
   }
 
-  createParticles() {
-    // Success particles for regular and bonus coins
-    this.successEmitter = this.add.particles(0, 0, 'success', {
-      speed: 100,
-      gravityY: speedDown - 200,
-      scale: 0.04,
-      duration: 100,
-      emitting: false
+  setupInput() {
+    // Tap/click to flap
+    this.input.on('pointerdown', () => {
+      if (this.gameStarted && !this.gameOver) {
+        this.flap()
+      }
     })
-    this.successEmitter.startFollow(this.player, this.player.width / 2, this.player.height / 2, true)
     
-    // Penalty particles for penalty coins
-    this.penaltyEmitter = this.add.particles(0, 0, 'penalty', {
-      speed: 100,
-      gravityY: speedDown - 200,
-      scale: 0.04,
-      duration: 100,
-      emitting: false
+    // Spacebar to flap
+    this.input.keyboard.on('keydown-SPACE', () => {
+      if (this.gameStarted && !this.gameOver) {
+        this.flap()
+      }
     })
-    this.penaltyEmitter.startFollow(this.player, this.player.width / 2, this.player.height / 2, true)
   }
-
 
   // ========================================
-  // GAME UPDATE HELPER METHODS
+  // GAME LOGIC METHODS
   // ========================================
 
-
-  handleTargetSpawning() {
-    // Check regular targets that fell off screen
-    this.targets.forEach((target, index) => {
-      if(target.y > sizes.height) {
-        this.targets.splice(index, 1)
-        target.destroy()
-        
-        // Create new target if under limit
-        if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 10) {
-          this.createTarget()
-        }
-      }
-    })
+  flap() {
+    const currentTime = this.time.now
     
-    // Check bonus targets that fell off screen
-    this.bonusTargets.forEach((bonusTarget, index) => {
-      if(bonusTarget.y > sizes.height) {
-        this.bonusTargets.splice(index, 1)
-        bonusTarget.destroy()
-        
-        // Create new bonus target if under limit
-        if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 10) {
-          this.createBonusTarget()
-        }
-      }
-    })
+    // Add current tap time
+    this.tapTimes.push(currentTime)
     
-    // Check penalty targets that fell off screen
-    this.penaltyTargets.forEach((penaltyTarget, index) => {
-      if(penaltyTarget.y > sizes.height) {
-        this.penaltyTargets.splice(index, 1)
-        penaltyTarget.destroy()
-        
-        // Create new penalty target if under limit
-        if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 10 && this.penaltyTargets.length < 3) {
-          this.createPenaltyTarget()
-        }
-      }
-    })
+    // Remove taps outside the combo window
+    this.tapTimes = this.tapTimes.filter(time => currentTime - time <= this.comboWindow)
     
-    // Spawn new targets based on difficulty (respecting limit)
-    this.updateTargetCount()
+    // Calculate jump force based on combo
+    const comboCount = this.tapTimes.length
+    let jumpForce = JUMP_FORCE
+    
+    if (comboCount >= 2) {
+      // Combo bonus: each additional tap adds more force
+      const comboBonus = (comboCount - 1) * 50
+      jumpForce = JUMP_FORCE - comboBonus
+    }
+    
+    // Apply the jump force
+    this.player.body.setVelocityY(jumpForce)
+    this.flapSound.play()
+    
+    // Reset combo after a short delay
+    this.time.delayedCall(500, () => {
+      this.tapTimes = []
+    })
   }
 
-  handlePlayerMovement() {
-    if(this.input.activePointer.isDown){
-      const mouseX = this.input.activePointer.x
-      this.player.setX(mouseX)
+  spawnObstacles() {
+    // Spawn obstacles more fluently
+    // Check if we need to spawn a new obstacle pair
+    if (this.obstacles.length === 0 || 
+        (this.obstacles.length > 0 && this.obstacles[this.obstacles.length - 1].top.x < sizes.width - OBSTACLE_SPAWN_DISTANCE)) {
+      this.createObstaclePair()
     }
   }
 
-  // ========================================
-  // GAME LOGIC HELPER METHODS
-  // ========================================
+  createObstaclePair() {
+    const gapSize = Phaser.Math.Between(OBSTACLE_GAP_MIN, OBSTACLE_GAP_MAX)
+    const gapY = Phaser.Math.Between(
+      gapSize / 2 + 50, 
+      sizes.height - gapSize / 2 - 50
+    )
+    
+    // Top obstacle
+    const topObstacle = this.physics.add
+      .image(sizes.width, gapY - gapSize / 2, 'obstacle')
+      .setOrigin(0.5, 1)
+      .setScale(scale)
+    
+    // Bottom obstacle
+    const bottomObstacle = this.physics.add
+      .image(sizes.width, gapY + gapSize / 2, 'obstacle')
+      .setOrigin(0.5, 0)
+      .setScale(scale)
+    
+    // Set velocity to move left
+    topObstacle.body.setVelocityX(-OBSTACLE_SPEED)
+    bottomObstacle.body.setVelocityX(-OBSTACLE_SPEED)
+    
+    // Store obstacles as a pair
+    const obstaclePair = {
+      top: topObstacle,
+      bottom: bottomObstacle,
+      passed: false
+    }
+    
+    this.obstacles.push(obstaclePair)
+    
+    // Set up collision detection
+    this.physics.add.overlap(this.player, topObstacle, this.hitObstacle, null, this)
+    this.physics.add.overlap(this.player, bottomObstacle, this.hitObstacle, null, this)
+  }
 
-  // Bonus target spawning logic moved to createTarget method
-  shouldSpawnBonusTarget() {
-    this.targetSpawnCounter++
-    if(this.targetSpawnCounter >= 5) {
-      this.targetSpawnCounter = 0
+  updateObstacles() {
+    // Remove obstacles that have moved off screen
+    this.obstacles = this.obstacles.filter(obstaclePair => {
+      if (obstaclePair.top.x < -200) {
+        obstaclePair.top.destroy()
+        obstaclePair.bottom.destroy()
+        return false
+      }
       return true
-    }
-    return false
+    })
   }
 
-  // Penalty target spawning logic
-  shouldSpawnPenaltyTarget() {
-    this.penaltySpawnCounter++
-    if(this.penaltySpawnCounter >= 6) {
-      this.penaltySpawnCounter = 0
-      return true
-    }
-    return false
-  }
-
-  getRandomX(){
-    return Math.random() * (sizes.width - (100 * scale))
-  }
-
-  updateTargetCount() {
-    // Gradually increase target count based on score
-    const newTargetCount = Math.min(Math.floor(this.points / 10) + 1, 10) // Max 10 targets total
-    
-    if(newTargetCount > this.targetCount) {
-      // Add new targets only if under the limit
-      const currentTotal = this.targets.length + this.bonusTargets.length + this.penaltyTargets.length
-      const targetsToAdd = Math.min(newTargetCount - this.targetCount, 10 - currentTotal)
-      
-      for(let i = 0; i < targetsToAdd; i++) {
-        this.createTarget()
+  checkScoring() {
+    // Check if player has passed through any obstacle pairs
+    this.obstacles.forEach(obstaclePair => {
+      if (!obstaclePair.passed && this.player.x > obstaclePair.top.x + 50) {
+        obstaclePair.passed = true
+        this.updateScore()
       }
-      this.targetCount = newTargetCount
+    })
+  }
+
+  checkCollisions() {
+    // Check if player hit the ground or ceiling
+    if (this.player.y >= sizes.height - 50 || this.player.y <= 50) {
+      this.hitObstacle()
     }
   }
 
-  targetHit(target, player){
-    console.log('Target hit! Target object:', target, 'Player:', player)
+  hitObstacle() {
+    if (this.gameOver) return
     
-    this.coinMusic.play()
-    this.successEmitter.start()
-    this.updateScore(1)
-    console.log('Scoring 1 point, destroying target immediately')
-    
-    // Immediately destroy and remove target
-    const targetIndex = this.targets.indexOf(target)
-    if(targetIndex !== -1) {
-      this.targets.splice(targetIndex, 1)
-    }
-    target.destroy()
-    
-    // Create a new target to replace it (if under limit)
-    if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 10) {
-      this.createTarget()
-    }
+    this.gameOver = true
+    this.collisionSound.play()
+    this.endGame()
   }
 
-  bonusTargetHit(bonusTarget, player){
-    console.log('Bonus target hit! Target object:', bonusTarget, 'Player:', player)
-    
-    this.coinMusic.play()
-    this.successEmitter.start()
-    this.updateScore(3)
-    console.log('Scoring 3 points, destroying bonus target immediately')
-    
-    // Immediately destroy and remove bonus target
-    const bonusIndex = this.bonusTargets.indexOf(bonusTarget)
-    if(bonusIndex !== -1) {
-      this.bonusTargets.splice(bonusIndex, 1)
-    }
-    bonusTarget.destroy()
-    
-    // Create a new bonus target to replace it (if under limit)
-    if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 10) {
-      this.createBonusTarget()
-    }
+  updateScore() {
+    this.score++
+    this.textScore.setText(`Score: ${this.score}`)
   }
 
-  penaltyTargetHit(penaltyTarget, player){
-    console.log('Penalty target hit! Target object:', penaltyTarget, 'Player:', player)
-    
-    this.penaltySound.play()
-    this.penaltyEmitter.start()
-    this.loseLife() // Lose a life instead of subtracting points
-    console.log('Penalty! Lost a life, destroying penalty target immediately')
-    
-    // Immediately destroy and remove penalty target
-    const penaltyIndex = this.penaltyTargets.indexOf(penaltyTarget)
-    if(penaltyIndex !== -1) {
-      this.penaltyTargets.splice(penaltyIndex, 1)
-    }
-    penaltyTarget.destroy()
-    
-    // Create a new penalty target to replace it (if under limit)
-    if(this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 10 && this.penaltyTargets.length < 3) {
-      this.createPenaltyTarget()
-    }
-  }
-
-  updateScore(points = 1) {
-    this.points += points
-    this.textScore.setText(`Score: ${this.points}`)
-    this.updateTargetCount() // Update target count based on score
-  }
-
-  loseLife() {
-    this.lives--
-    this.textLives.setText(`Lives: ${this.lives}`)
-    
-    if (this.lives <= 0) {
-      this.gameOver()
-    }
-  }
-
-  gameOver() {
-    this.sys.game.destroy(true)
+  endGame() {
+    this.game.scene.pause('gameScene')
     this.displayGameResults()
   }
 
   displayGameResults() {
-    gameEndScoreSpan.textContent = this.points
-    gameWinLoseSpan.textContent = `Final Score: ${this.points}`
+    gameEndScoreSpan.textContent = this.score
+    gameWinLoseSpan.textContent = `Final Score: ${this.score}`
     gameEndDiv.style.display = 'flex'
   }
 
+  resetGame() {
+    // Reset game state
+    this.score = 0
+    this.gameStarted = false
+    this.gameOver = false
+    this.obstacles = []
+    this.passedObstacles.clear()
+    this.lastObstacleX = sizes.width + OBSTACLE_SPAWN_DISTANCE
+    this.tapTimes = [] // Reset combo tap tracking
+    
+    // Reset player position
+    this.player.setPosition(sizes.width / 3, sizes.height / 2)
+    this.player.body.setVelocity(0, 0)
+    
+    // Reset UI
+    this.textScore.setText('Score: 0')
+    
+    // Hide game over screen
+    gameEndDiv.style.display = 'none'
+    
+    // Resume scene
+    this.scene.resume('gameScene')
+  }
+
+  startGame() {
+    this.gameStarted = true
+    this.gameOver = false
+    // Create first obstacle immediately
+    this.createObstaclePair()
+  }
 }
 
 const config = {
@@ -457,8 +316,8 @@ const config = {
   physics: {
     default: 'arcade',
     arcade: {
-      gravity: { y: speedDown },
-      debug:true
+      gravity: { y: 0 }, // We'll handle gravity manually for the player
+      debug: false
     }
   },
   scene: [GameScene]
@@ -466,7 +325,19 @@ const config = {
 
 const game = new Phaser.Game(config)
 
+// Get reference to the game scene
+let gameScene
+
+game.events.on('ready', () => {
+  gameScene = game.scene.getScene('gameScene')
+})
+
 gameStartBtn.addEventListener('click', () => {
   gameStartDiv.style.display = 'none'
   game.scene.resume('gameScene')
+  gameScene.startGame()
+})
+
+retryBtn.addEventListener('click', () => {
+  gameScene.resetGame()
 })

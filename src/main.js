@@ -47,18 +47,18 @@ class GameScene extends Phaser.Scene {
   // ========================================
   
   preload() {
-    this.load.image('bg', '/public/assets/cryptoBgd.png')
-    this.load.image('wallet', '/public/assets/wallet.png')
-    this.load.image('coin', '/public/assets/coin.png')
-    this.load.image('bonusCoin', '/public/assets/bonusCoin.png')
-    this.load.image('penaltyTarget', '/public/assets/penaltyCoin.png') // Using money sprite as penalty target
-    this.load.image('money', '/public/assets/money.png')
-    this.load.image('success', '/public/assets/success.png')
-    this.load.image('penalty', '/public/assets/penalty.png')
+    this.load.image('bg', '/assets/cryptoBgd.png')
+    this.load.image('wallet', '/assets/wallet.png')
+    this.load.image('coin', '/assets/coin.png')
+    this.load.image('bonusCoin', '/assets/bonusCoin.png')
+    this.load.image('penaltyTarget', '/assets/penaltyCoin.png') // Using money sprite as penalty target
+    this.load.image('money', '/assets/money.png')
+    this.load.image('success', '/assets/success.png')
+    this.load.image('penalty', '/assets/penalty.png')
     
-    this.load.audio('coinMusic', '/public/assets/coin.mp3')
-    this.load.audio('bgMusic', '/public/assets/bgMusic.mp3')
-    this.load.audio('penaltySound', '/public/assets/incorrect.mp3')
+    this.load.audio('coinMusic', '/assets/coin.mp3')
+    this.load.audio('bgMusic', '/assets/bgMusic.mp3')
+    this.load.audio('penaltySound', '/assets/incorrect.mp3')
   }
 
   create() {

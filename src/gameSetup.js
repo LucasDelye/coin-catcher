@@ -1,4 +1,4 @@
-import { sizes, scale, speedDown } from './constants.js'
+import { sizes, scale, speedDown, MAX_TOTAL_TARGETS, MAX_PENALTY_TARGETS } from './constants.js'
 
 export function initializeAudio(scene) {
   scene.coinMusic = scene.sound.add('coinMusic')
@@ -50,15 +50,15 @@ export function createTarget(scene) {
 
   if (
     shouldSpawnBonusTarget(scene) &&
-    scene.targets.length + scene.bonusTargets.length + scene.penaltyTargets.length < 10
+    scene.targets.length + scene.bonusTargets.length + scene.penaltyTargets.length < MAX_TOTAL_TARGETS
   ) {
     createBonusTarget(scene)
   }
 
   if (
     shouldSpawnPenaltyTarget(scene) &&
-    scene.targets.length + scene.bonusTargets.length + scene.penaltyTargets.length < 10 &&
-    scene.penaltyTargets.length < 3
+    scene.targets.length + scene.bonusTargets.length + scene.penaltyTargets.length < MAX_TOTAL_TARGETS &&
+    scene.penaltyTargets.length < MAX_PENALTY_TARGETS
   ) {
     createPenaltyTarget(scene)
   }
@@ -131,7 +131,7 @@ export function createUI(scene) {
   scene.textScore.setDepth(1)
 
   // Lives on the right (origin 1,0 = right-align so x is the right edge)
-  scene.textLives = scene.add.text(sizes.width - 10, 10, 'Lives: 3', {
+  scene.textLives = scene.add.text(sizes.width - 10, 10, 'Lives: 5', {
     font: `bold ${fontSize}px Arial`,
     fill: '#000000',
     stroke: '#000000',
@@ -188,53 +188,29 @@ export function createParticles(scene) {
     duration: 100,
     emitting: false
   })
-  scene.successEmitter.startFollow(
-    scene.player,
-    scene.player.width / 2,
-    scene.player.height / 2,
-    true
-  )
+  // Emit from middle of phone: origin (0.5,0) so (0,0) is top-center; displayHeight/2 is vertical center
+  scene.successEmitter.startFollow(scene.player, 0, scene.player.displayHeight / 2, true)
 
-  scene.penaltyEmitter = scene.add.particles(0, 0, 'penalty', {
+  scene.penaltyEmitter = scene.add.particles(0, 0, 'penaltyTarget', {
     speed: 100,
     gravityY: speedDown - 200,
     scale: 0.04,
     duration: 100,
     emitting: false
   })
-  scene.penaltyEmitter.startFollow(
-    scene.player,
-    scene.player.width / 2,
-    scene.player.height / 2,
-    true
-  )
+  scene.penaltyEmitter.startFollow(scene.player, 0, scene.player.displayHeight / 2, true)
 
   const scoreCenterX = scene.textScore.x + scene.textScore.width / 2
   const scoreBurstY = scene.textScore.y + scene.textScore.height + 12
-  scene.scoreBurstEmitter = scene.add.particles(scoreCenterX, scoreBurstY, 'coin', {
-    speed: { min: 80, max: 180 },
+  scene.bonusBurstEmitter = scene.add.particles(scoreCenterX, scoreBurstY, 'bonusCoin', {
+    speed: { min: 100, max: 220 },
     angle: { min: 250, max: 290 },
-    scale: { start: 0.2, end: 0.04 },
-    lifespan: 600,
-    gravityY: 200,
-    quantity: 8,
+    scale: { start: 0.28, end: 0.06 },
+    lifespan: 700,
+    gravityY: 220,
+    quantity: 10,
     emitting: false
   })
-  scene.scoreBurstEmitter.setDepth(100)
-
-  const livesCenterX = scene.textLives.x - scene.textLives.width / 2
-  const livesBurstY = scene.textLives.y + scene.textLives.height + 12
-  // Use penaltyTarget (red coin) so we don't share texture with player penaltyEmitter
-  scene.livesBurstEmitter = scene.add.particles(livesCenterX, livesBurstY, 'penaltyTarget', {
-    speed: { min: 80, max: 180 },
-    angle: { min: 250, max: 290 },
-    scale: { start: 0.2, end: 0.04 },
-    lifespan: 600,
-    gravityY: 200,
-    quantity: 8,
-    emitting: false
-  })
-  scene.livesBurstEmitter.setDepth(100)
 }
 
 export function shouldSpawnBonusTarget(scene) {

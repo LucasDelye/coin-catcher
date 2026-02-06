@@ -1,7 +1,7 @@
 import './style.css'
 import Phaser from 'phaser'
 import phaserJuice from '../phaser3-juice-plugin-master/docs/lib/phaserJuice.min.js'
-import { sizes, speedDown } from './constants.js'
+import { sizes, speedDown, MAX_TOTAL_TARGETS, MAX_PENALTY_TARGETS } from './constants.js'
 import * as gameSetup from './gameSetup.js'
 import * as gameUpdate from './gameUpdate.js'
 
@@ -9,7 +9,6 @@ const gameStartDiv = document.querySelector('#gameStartDiv')
 const gameStartBtn = document.querySelector('#gameStartBtn')
 const gameEndDiv = document.querySelector('#gameEndDiv')
 const gameEndScoreSpan = document.querySelector('#gameEndScoreSpan')
-const gameWinLoseSpan = document.querySelector('#gameWinLoseSpan')
 
 class GameScene extends Phaser.Scene {
   constructor() {
@@ -21,13 +20,12 @@ class GameScene extends Phaser.Scene {
     this.penaltyTargets = []
     this.playerSpeed = speedDown + 50
     this.points = 0
-    this.lives = 3
+    this.lives = 5
     this.textScore
     this.textLives
     this.scoreBox
     this.livesBox
-    this.scoreBurstEmitter
-    this.livesBurstEmitter
+    this.bonusBurstEmitter
     this.coinMusic
     this.bgMusic
     this.successEmitter
@@ -36,6 +34,7 @@ class GameScene extends Phaser.Scene {
     this.targetSpawnCounter = 0
     this.penaltySpawnCounter = 0
     this.hitTargets = new Set()
+    this.isGameOver = false
   }
 
   preload() {
@@ -79,6 +78,7 @@ class GameScene extends Phaser.Scene {
   }
 
   update() {
+    if (this.isGameOver) return
     // Stop phone wobble as soon as the user drags so the hitbox follows the finger
     if (this.input.activePointer.isDown && this.juice.wobbleTween?.isPlaying()) {
       this.juice.wobbleTween.stop()
@@ -88,6 +88,7 @@ class GameScene extends Phaser.Scene {
   }
 
   targetHit(target, player) {
+    if (this.isGameOver) return
     this.coinMusic.play()
     this.successEmitter.start()
     this.updateScore(1)
@@ -96,26 +97,35 @@ class GameScene extends Phaser.Scene {
     if (targetIndex !== -1) this.targets.splice(targetIndex, 1)
     target.destroy()
 
-    if (this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 10) {
+    if (this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < MAX_TOTAL_TARGETS) {
       this.createTarget()
     }
   }
 
   bonusTargetHit(bonusTarget, player) {
+    if (this.isGameOver) return
     this.coinMusic.play()
     this.successEmitter.start()
     this.updateScore(3)
+
+    this.time.delayedCall(0, () => {
+      const x = this.player.x
+      const y = this.player.y + this.player.displayHeight / 2
+      this.bonusBurstEmitter.setPosition(x, y)
+      this.bonusBurstEmitter.explode(10, x, y)
+    })
 
     const bonusIndex = this.bonusTargets.indexOf(bonusTarget)
     if (bonusIndex !== -1) this.bonusTargets.splice(bonusIndex, 1)
     bonusTarget.destroy()
 
-    if (this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 10) {
+    if (this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < MAX_TOTAL_TARGETS) {
       this.createBonusTarget()
     }
   }
 
   penaltyTargetHit(penaltyTarget, player) {
+    if (this.isGameOver) return
     this.penaltySound.play()
     this.penaltyEmitter.start()
     this.loseLife()
@@ -125,8 +135,8 @@ class GameScene extends Phaser.Scene {
     penaltyTarget.destroy()
 
     if (
-      this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < 10 &&
-      this.penaltyTargets.length < 3
+      this.targets.length + this.bonusTargets.length + this.penaltyTargets.length < MAX_TOTAL_TARGETS &&
+      this.penaltyTargets.length < MAX_PENALTY_TARGETS
     ) {
       this.createPenaltyTarget()
     }
@@ -142,11 +152,6 @@ class GameScene extends Phaser.Scene {
     this.tweens.getTweensOf(this.textScore).forEach((t) => t.stop())
     this.juice.reset(this.textScore)
     this.juice.pulse(this.textScore, { duration: 120, repeat: 1 })
-
-    const x = this.textScore.x + this.textScore.width / 2
-    const y = this.textScore.y + this.textScore.height + 12
-    this.scoreBurstEmitter.setPosition(x, y)
-    this.scoreBurstEmitter.explode(6, x, y)
   }
 
   loseLife() {
@@ -156,26 +161,30 @@ class GameScene extends Phaser.Scene {
 
     this.juice.shake(this.textLives, { x: 0, y: 4, duration: 35, repeat: 4 })
 
-    // Defer burst so text/layout is updated; textLives has origin (1,0) so center = x - width/2
-    this.time.delayedCall(0, () => {
-      const x = this.textLives.x - this.textLives.width / 2
-      const y = this.textLives.y + this.textLives.height + 12
-      this.livesBurstEmitter.setPosition(x, y)
-      this.livesBurstEmitter.explode(8, x, y)
-    })
-
-    if (this.lives <= 0) this.gameOver()
+    if (this.lives <= 0) {
+      this.isGameOver = true
+      const allVisible = [
+        this.player,
+        ...this.targets,
+        ...this.bonusTargets,
+        ...this.penaltyTargets
+      ]
+      this.tweens.add({
+        targets: allVisible,
+        alpha: 0,
+        duration: 1500,
+        onComplete: () => this.gameOver()
+      })
+    }
   }
 
   gameOver() {
-    this.sys.game.destroy(true)
     this.displayGameResults()
   }
 
   displayGameResults() {
     gameEndScoreSpan.textContent = this.points
-    gameWinLoseSpan.textContent = `Final Score: ${this.points}`
-    gameEndDiv.style.display = 'flex'
+    gameEndDiv.setAttribute('aria-hidden', 'false')
   }
 }
 
@@ -189,7 +198,7 @@ const config = {
     default: 'arcade',
     arcade: {
       gravity: { y: speedDown },
-      debug: true
+      debug: false
     }
   },
   scene: [GameScene]

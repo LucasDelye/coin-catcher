@@ -1,4 +1,4 @@
-import { sizes } from './constants.js'
+import { sizes, MAX_TOTAL_TARGETS, MAX_PENALTY_TARGETS } from './constants.js'
 import * as gameSetup from './gameSetup.js'
 
 export function handleTargetSpawning(scene) {
@@ -7,7 +7,7 @@ export function handleTargetSpawning(scene) {
       scene.targets.splice(index, 1)
       target.destroy()
       if (
-        scene.targets.length + scene.bonusTargets.length + scene.penaltyTargets.length < 10
+        scene.targets.length + scene.bonusTargets.length + scene.penaltyTargets.length < MAX_TOTAL_TARGETS
       ) {
         gameSetup.createTarget(scene)
       }
@@ -19,7 +19,7 @@ export function handleTargetSpawning(scene) {
       scene.bonusTargets.splice(index, 1)
       bonusTarget.destroy()
       if (
-        scene.targets.length + scene.bonusTargets.length + scene.penaltyTargets.length < 10
+        scene.targets.length + scene.bonusTargets.length + scene.penaltyTargets.length < MAX_TOTAL_TARGETS
       ) {
         gameSetup.createBonusTarget(scene)
       }
@@ -31,8 +31,8 @@ export function handleTargetSpawning(scene) {
       scene.penaltyTargets.splice(index, 1)
       penaltyTarget.destroy()
       if (
-        scene.targets.length + scene.bonusTargets.length + scene.penaltyTargets.length < 10 &&
-        scene.penaltyTargets.length < 3
+        scene.targets.length + scene.bonusTargets.length + scene.penaltyTargets.length < MAX_TOTAL_TARGETS &&
+        scene.penaltyTargets.length < MAX_PENALTY_TARGETS
       ) {
         gameSetup.createPenaltyTarget(scene)
       }
@@ -50,12 +50,12 @@ export function handlePlayerMovement(scene) {
 }
 
 export function updateTargetCount(scene) {
-  const newTargetCount = Math.min(Math.floor(scene.points / 10) + 1, 10)
+  const newTargetCount = Math.min(Math.floor(scene.points / 10) + 1, MAX_TOTAL_TARGETS)
 
   if (newTargetCount > scene.targetCount) {
     const currentTotal =
       scene.targets.length + scene.bonusTargets.length + scene.penaltyTargets.length
-    const targetsToAdd = Math.min(newTargetCount - scene.targetCount, 10 - currentTotal)
+    const targetsToAdd = Math.min(newTargetCount - scene.targetCount, MAX_TOTAL_TARGETS - currentTotal)
 
     for (let i = 0; i < targetsToAdd; i++) {
       gameSetup.createTarget(scene)
